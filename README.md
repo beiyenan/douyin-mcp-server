@@ -29,6 +29,7 @@
 | [**WebUI**](#-webui-推荐) | 普通用户 | 浏览器操作，最简单 |
 | [**MCP Server**](#-mcp-server) | Claude Desktop 用户 | AI 对话中直接调用 |
 | [**命令行**](#️-命令行工具) | 开发者 | 批量处理，脚本集成 |
+| [**video-html-extractor Skill**](#-video-html-extractor-skill-本地视频到两版-html) | Agent 用户 (Claude Code / DSH / Codex) | 本地音视频 → 摘要版 + 阅读版 HTML |
 
 ---
 
@@ -198,6 +199,77 @@ output/
 
 ---
 
+## 📦 video-html-extractor Skill (本地视频 → 两版 HTML)
+
+本地音视频（.mp4/.mov/.mkv/.mp3/.wav/.m4a/.flac/.ogg）→ 语音转写 → 结构化 → **摘要版 + 阅读版** 两版单文件 HTML（深色毛玻璃设计、字号/字体/主题可调、零外部依赖）。
+
+位于 [`douyin-video/`](douyin-video/SKILL.md) 目录（最新 skill 实现，替代旧版仅下载功能）：
+
+```
+douyin-video/
+├── SKILL.md                  ← 主文档：给执行 Agent 的完整工作流
+├── INSTALL.md                ← 安装指南（依赖、密钥配置、自检）
+├── DESIGN-SPEC.md            ← 视觉设计规范（两版 HTML 的 CSS 权威来源）
+├── examples/
+│   └── analysis.example.json ← 结构范本
+└── scripts/
+    ├── run_pipeline.py       ← 编排器：prepare / finish（唯一入口）
+    ├── extract_audio.py      ← 音频提取（ffmpeg 优先，纯 Python 降级）
+    ├── asr_transcribe.py     ← 分块并行 ASR（SiliconFlow）
+    ├── llm_calibrate.py      ← 机器校正预筛（Zhipu）
+    ├── validate_analysis.py  ← 严格 schema 校验器
+    ├── render_html.py        ← 摘要版渲染器（8 种视觉组件）
+    ├── read_render.py        ← 阅读版渲染器
+    └── douyin_downloader.py  ← 旧版抖音下载脚本（保留兼容）
+```
+
+### 使用（三步）
+
+```bash
+# 1. prepare：提取音频 → ASR 转写 → 机器校正 → 生成骨架 analysis.json + 任务单 TASK.md
+python3 douyin-video/scripts/run_pipeline.py prepare <输入.mp4> --out <工作区>
+
+# 2. 按 TASK.md 填好 analysis.json（唯一要动手的步骤），自检到 0 error
+python3 douyin-video/scripts/validate_analysis.py <工作区>/analysis.json --transcript <工作区>/transcript.txt
+
+# 3. finish：校验 + 渲染两版 HTML + 自动清理中间产物
+python3 douyin-video/scripts/run_pipeline.py finish <输入.mp4> --out <工作区>
+```
+
+产物（与工作区同目录）：`<标题>_摘要版.html`、`<标题>_阅读版.html`、`<标题>_校正稿.txt`、`analysis.json`。
+
+### 密钥配置
+
+| 用途 | 必需性 | 申请 |
+|------|:------:|------|
+| SiliconFlow (ASR) | 必需（转写） | [硅基流动](https://cloud.siliconflow.cn/) 免费 key |
+| Zhipu (机器校正) | 必需（预筛） | [智谱](https://bigmodel.cn) |
+
+```bash
+# 文件方式（推荐）
+mkdir -p ~/.dsh/secrets
+printf '%s' '<你的硅基流动key>' > ~/.dsh/secrets/siliconflow_api_key
+printf '%s' '<你的智谱key>'     > ~/.dsh/secrets/zhipu_api_key
+
+# 或环境变量
+export SILICONFLOW_API_KEY='<key>'
+export ZHIPU_API_KEY='<key>'
+```
+
+**无 key 降级路径**：没有 SiliconFlow key 时手动提供文字稿（`transcript.txt`，`[mm:ss] 文本` 格式）；没有 Zhipu key 时 prepare 跳过机器校正（exit 3/4），填 analysis.json 时人工完成校正。流程仍可走完。
+
+### Agent 框架安装
+
+```bash
+# Claude Code / DSH / 其他 Agent 框架：把整个 douyin-video/ 目录放进 skills 目录
+cp -r douyin-video ~/.claude/skills/video-html-extractor   # Claude Code 示例
+cp -r douyin-video ~/.dsh/skills/video-html-extractor      # DSH 示例
+```
+
+完整安装与自检见 [`douyin-video/INSTALL.md`](douyin-video/INSTALL.md)。
+
+---
+
 ## 📋 系统要求
 
 | 依赖 | 说明 | 安装方式 |
@@ -231,7 +303,13 @@ output/
 
 ## 📝 更新日志
 
-### v1.4.1 (最新)
+### v1.5.0 (最新)
+
+- 📦 **video-html-extractor Skill** - `douyin-video/` 目录升级为完整 skill：本地音视频 → ASR 转写 → 机器校正 → 摘要版 + 阅读版双 HTML（毛玻璃深色设计、字号/字体/主题可调、单文件零依赖）
+- 🔧 新增 `DESIGN-SPEC.md`（视觉规范）/ `INSTALL.md`（安装与自检）/ `examples/analysis.example.json`（结构范本）
+- 🛡️ 旧版 `douyin_downloader.py` 保留在 `scripts/` 下兼容
+
+### v1.4.1
 
 - 🔧 **MCP Server 修复** - `API_KEY` 现在正确对应硅基流动密钥，与文档一致；同时兼容旧版 `DASHSCOPE_API_KEY` 配置
 - ♻️ **恢复工具** - 恢复 `recognize_audio_file` / `recognize_audio_url` 工具及 `extract_douyin_text` 的 `context` 参数
